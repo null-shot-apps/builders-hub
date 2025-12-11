@@ -1,84 +1,264 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
+import { OnboardingModal } from '@/components/OnboardingModal';
+import { Header } from '@/components/Header';
+import { PostFeed } from '@/components/PostFeed';
+import { TeamOffersFeed } from '@/components/TeamOffersFeed';
+import { CreatePostModal } from '@/components/CreatePostModal';
+import { CreateTeamOfferModal } from '@/components/CreateTeamOfferModal';
 
-const slogans = [
-  "Turn chats into apps",
-  "Prompt. Ship. Repeat.",
-  "Build anything from a chat",
-  "Ideas → Apps, instantly",
-  "From zero to MVP in minutes",
-  "Your cofounder in the command line",
-  "Draft, iterate, deploy",
-  "Ship faster than you can type",
-  "Design in text, deliver in code",
-  "Dream it. Prompt it. Run it.",
-  "Chat-native app building",
-  "From prompt to product",
-  "One prompt, infinite apps",
-  "Stop scaffolding. Start shipping.",
-  "Prototype at the speed of thought",
-  "Make conversations executable"
-];
+export type UserRole = 'designer' | 'developer' | 'writer';
 
-export default function Landing() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
+export interface User {
+  id: string;
+  name: string;
+  role: UserRole;
+}
+
+export interface Post {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  content: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  tags: string[];
+  timestamp: number;
+}
+
+export interface TeamMember {
+  userId: string;
+  userName: string;
+  role: UserRole;
+  status: 'pending' | 'approved';
+}
+
+export interface TeamOffer {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  title: string;
+  description: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  tags: string[];
+  neededRoles: {
+    designer: number;
+    developer: number;
+    writer: number;
+  };
+  appliedMembers: TeamMember[];
+  timestamp: number;
+}
+
+export default function TeamHub() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [activeTab, setActiveTab] = useState<'posts' | 'teams'>('posts');
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [showCreateTeamOffer, setShowCreateTeamOffer] = useState(false);
+  
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [teamOffers, setTeamOffers] = useState<TeamOffer[]>([]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setIsVisible(false);
-      setTimeout(() => {
-        setCurrentIndex((prev) => (prev + 1) % slogans.length);
-        setIsVisible(true);
-      }, 400);
-    }, 2800);
+    // Check if user exists in localStorage
+    const savedUser = localStorage.getItem('teamhub_user');
+    if (savedUser) {
+      setCurrentUser(JSON.parse(savedUser));
+      setShowOnboarding(false);
+    }
 
-    return () => clearInterval(interval);
+    // Load posts and team offers
+    const savedPosts = localStorage.getItem('teamhub_posts');
+    const savedTeamOffers = localStorage.getItem('teamhub_team_offers');
+    
+    if (savedPosts) setPosts(JSON.parse(savedPosts));
+    if (savedTeamOffers) setTeamOffers(JSON.parse(savedTeamOffers));
   }, []);
 
+  const handleUserSignup = (name: string, role: UserRole) => {
+    const user: User = {
+      id: Date.now().toString(),
+      name,
+      role,
+    };
+    setCurrentUser(user);
+    localStorage.setItem('teamhub_user', JSON.stringify(user));
+    setShowOnboarding(false);
+  };
+
+  const handleCreatePost = (post: Omit<Post, 'id' | 'userId' | 'userName' | 'userRole' | 'timestamp'>) => {
+    if (!currentUser) return;
+    
+    const newPost: Post = {
+      ...post,
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRole: currentUser.role,
+      timestamp: Date.now(),
+    };
+    
+    const updatedPosts = [newPost, ...posts];
+    setPosts(updatedPosts);
+    localStorage.setItem('teamhub_posts', JSON.stringify(updatedPosts));
+    setShowCreatePost(false);
+  };
+
+  const handleCreateTeamOffer = (offer: Omit<TeamOffer, 'id' | 'userId' | 'userName' | 'userRole' | 'appliedMembers' | 'timestamp'>) => {
+    if (!currentUser) return;
+    
+    const newOffer: TeamOffer = {
+      ...offer,
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRole: currentUser.role,
+      appliedMembers: [],
+      timestamp: Date.now(),
+    };
+    
+    const updatedOffers = [newOffer, ...teamOffers];
+    setTeamOffers(updatedOffers);
+    localStorage.setItem('teamhub_team_offers', JSON.stringify(updatedOffers));
+    setShowCreateTeamOffer(false);
+  };
+
+  const handleApplyToTeam = (offerId: string, role: UserRole) => {
+    if (!currentUser) return;
+
+    const updatedOffers = teamOffers.map(offer => {
+      if (offer.id === offerId) {
+        // Check if user already applied
+        const alreadyApplied = offer.appliedMembers.some(m => m.userId === currentUser.id);
+        if (alreadyApplied) return offer;
+
+        return {
+          ...offer,
+          appliedMembers: [
+            ...offer.appliedMembers,
+            {
+              userId: currentUser.id,
+              userName: currentUser.name,
+              role,
+              status: 'pending' as const,
+            },
+          ],
+        };
+      }
+      return offer;
+    });
+
+    setTeamOffers(updatedOffers);
+    localStorage.setItem('teamhub_team_offers', JSON.stringify(updatedOffers));
+  };
+
+  const handleApproveApplication = (offerId: string, userId: string) => {
+    const updatedOffers = teamOffers.map(offer => {
+      if (offer.id === offerId) {
+        return {
+          ...offer,
+          appliedMembers: offer.appliedMembers.map(member =>
+            member.userId === userId ? { ...member, status: 'approved' as const } : member
+          ),
+        };
+      }
+      return offer;
+    });
+
+    setTeamOffers(updatedOffers);
+    localStorage.setItem('teamhub_team_offers', JSON.stringify(updatedOffers));
+  };
+
+  const handleRejectApplication = (offerId: string, userId: string) => {
+    const updatedOffers = teamOffers.map(offer => {
+      if (offer.id === offerId) {
+        return {
+          ...offer,
+          appliedMembers: offer.appliedMembers.filter(member => member.userId !== userId),
+        };
+      }
+      return offer;
+    });
+
+    setTeamOffers(updatedOffers);
+    localStorage.setItem('teamhub_team_offers', JSON.stringify(updatedOffers));
+  };
+
+  const handleLeaveTeam = (offerId: string) => {
+    if (!currentUser) return;
+
+    const updatedOffers = teamOffers.map(offer => {
+      if (offer.id === offerId) {
+        return {
+          ...offer,
+          appliedMembers: offer.appliedMembers.filter(member => member.userId !== currentUser.id),
+        };
+      }
+      return offer;
+    });
+
+    setTeamOffers(updatedOffers);
+    localStorage.setItem('teamhub_team_offers', JSON.stringify(updatedOffers));
+  };
+
+  if (showOnboarding) {
+    return <OnboardingModal onSignup={handleUserSignup} />;
+  }
+
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
-      {/* Enhanced animated aurora background layers */}
-      <div className="absolute inset-0 bg-aurora-layer-1" />
-      <div className="absolute inset-0 bg-aurora-layer-2" />
-      <div className="absolute inset-0 bg-aurora-layer-3" />
-      
-      {/* Floating particles overlay */}
-      <div className="absolute inset-0 bg-particles" />
-      
-      {/* Main content - centered */}
-      <main className="relative z-10 h-full flex flex-col items-center justify-center px-6">
-        <h1 className="text-center text-[clamp(28px,6vw,64px)] font-medium tracking-tight mb-4">
-          Turn Chats into Apps
-        </h1>
-        
-        {/* Rotating slogans */}
-        <div className="mt-4 h-8 md:h-10 overflow-hidden flex items-center justify-center">
-          <span
-            className={`inline-block text-center text-[clamp(18px,3vw,32px)] font-light transition-all duration-[400ms] ease-in-out ${
-              isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
-            }`}
-          >
-            {slogans[currentIndex]}
-          </span>
-        </div>
-      </main>
-      
-      {/* Start Prompting arrow pointing left - bottom left */}
-      <div className="absolute left-6 md:left-8 bottom-[5%] z-20 flex items-center gap-3 arrow-point-left">
-        <div className="flex items-center gap-2 text-white/80 font-medium text-sm md:text-base">
-          <svg 
-            className="w-5 h-5 md:w-6 md:h-6 animate-bounce-horizontal" 
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          <span>Start prompting</span>
-        </div>
+    <div className="min-h-screen bg-black text-white">
+      {/* Aurora background */}
+      <div className="fixed inset-0 bg-aurora-layer-1" />
+      <div className="fixed inset-0 bg-aurora-layer-2" />
+      <div className="fixed inset-0 bg-aurora-layer-3" />
+      <div className="fixed inset-0 bg-particles" />
+
+      {/* Content */}
+      <div className="relative z-10">
+        <Header 
+          user={currentUser!} 
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onCreatePost={() => setShowCreatePost(true)}
+          onCreateTeamOffer={() => setShowCreateTeamOffer(true)}
+        />
+
+        <main className="max-w-4xl mx-auto px-4 py-6">
+          {activeTab === 'posts' ? (
+            <PostFeed posts={posts} />
+          ) : (
+            <TeamOffersFeed 
+              offers={teamOffers}
+              currentUser={currentUser!}
+              onApply={handleApplyToTeam}
+              onApprove={handleApproveApplication}
+              onReject={handleRejectApplication}
+              onLeave={handleLeaveTeam}
+            />
+          )}
+        </main>
       </div>
+
+      {/* Modals */}
+      {showCreatePost && (
+        <CreatePostModal
+          onClose={() => setShowCreatePost(false)}
+          onCreate={handleCreatePost}
+        />
+      )}
+
+      {showCreateTeamOffer && (
+        <CreateTeamOfferModal
+          onClose={() => setShowCreateTeamOffer(false)}
+          onCreate={handleCreateTeamOffer}
+        />
+      )}
     </div>
   );
 }
+
